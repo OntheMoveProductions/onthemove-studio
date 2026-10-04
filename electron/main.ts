@@ -187,7 +187,9 @@ async function runUpdateSelfTest() {
   const t0 = Date.now();
   const progress = setInterval(() => {
     const u = updater!.status();
-    console.log(`  ${Math.round((Date.now() - t0) / 1000)}s ${u.phase} ${Math.round(u.progress * 100)}%`);
+    const line = `  ${Math.round((Date.now() - t0) / 1000)}s ${u.phase} ${Math.round(u.progress * 100)}%`;
+    console.log(line);
+    if (process.env.OTM_UPDATE_LOG) fs.appendFileSync(process.env.OTM_UPDATE_LOG, line + "\n");
   }, 5000);
   try {
     await updater!.install();

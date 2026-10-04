@@ -91,7 +91,7 @@ jobs:
           ls -la feed/
           BEFORE=$(stat -f %i "$TARGET")
           RUNAS=""; [ "${{ matrix.arch }}" = x64 ] && RUNAS="arch -x86_64"
-          ELECTRON_ENABLE_LOGGING=1 OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json $RUNAS "$TARGET/Contents/MacOS/On the Move Studio"
+          OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json $RUNAS "$TARGET/Contents/MacOS/On the Move Studio"
           for i in $(seq 1 90); do
             NOW=$(stat -f %i "$TARGET" 2>/dev/null || echo none)
             [ "$NOW" != "$BEFORE" ] && [ "$NOW" != none ] && break
@@ -149,15 +149,15 @@ jobs:
           [ -e "$EXE" ] || { echo "FAIL installer did not install the app"; exit 1; }
           mkdir -p feed && cp "$SETUP" feed/setup.exe
           printf '{"tag_name":"v99.0.0","html_url":"https://example.com","assets":[{"name":"test-x64.exe","browser_download_url":"http://127.0.0.1:8765/setup.exe"}]}' > feed/latest.json
-          (cd feed && python -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          node -e "const fs=require('fs'),p=require('path');require('http').createServer((q,r)=>{const f=p.join('feed',p.basename(q.url));if(!fs.existsSync(f)){r.writeHead(404);return r.end()}r.writeHead(200,{'content-length':fs.statSync(f).size});fs.createReadStream(f).pipe(r)}).listen(8765,'127.0.0.1')" &
           for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8765/latest.json >/dev/null 2>&1 && break; sleep 0.5; done
           # The installer must put back a file removed from the installed app.
           rm "$D/LICENSE.electron.txt"
-          OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json "$EXE" > update.log 2>&1 &
+          OTM_UPDATE_LOG="$PWD/progress.log" OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json "$EXE" > update.log 2>&1 &
           for i in $(seq 1 480); do
             [ -e "$D/LICENSE.electron.txt" ] && break
             if [ $((i % 15)) = 0 ]; then
-              echo "--- ${i}s"; tail -2 update.log; tasklist | grep -iE "move|setup|ins" || true
+              echo "--- ${i}s"; tail -2 update.log; tail -1 progress.log 2>/dev/null; tasklist | grep -iE "move|setup|ins" || true
               ls -la "$TEMP"/otm-update-* 2>/dev/null | head -5 || true
             fi
             sleep 1
