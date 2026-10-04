@@ -91,7 +91,7 @@ jobs:
           ls -la feed/
           BEFORE=$(stat -f %i "$TARGET")
           RUNAS=""; [ "${{ matrix.arch }}" = x64 ] && RUNAS="arch -x86_64"
-          OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json $RUNAS "$TARGET/Contents/MacOS/On the Move Studio"
+          ELECTRON_ENABLE_LOGGING=1 OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json $RUNAS "$TARGET/Contents/MacOS/On the Move Studio"
           for i in $(seq 1 90); do
             NOW=$(stat -f %i "$TARGET" 2>/dev/null || echo none)
             [ "$NOW" != "$BEFORE" ] && [ "$NOW" != none ] && break
@@ -154,7 +154,14 @@ jobs:
           # The installer must put back a file removed from the installed app.
           rm "$D/LICENSE.electron.txt"
           OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json "$EXE" > update.log 2>&1 &
-          for i in $(seq 1 480); do [ -e "$D/LICENSE.electron.txt" ] && break; sleep 1; done
+          for i in $(seq 1 480); do
+            [ -e "$D/LICENSE.electron.txt" ] && break
+            if [ $((i % 15)) = 0 ]; then
+              echo "--- ${i}s"; tail -2 update.log; tasklist | grep -iE "move|setup|ins" || true
+              ls -la "$TEMP"/otm-update-* 2>/dev/null | head -5 || true
+            fi
+            sleep 1
+          done
           echo "waited ${i}s"; cat update.log
           grep -q "^PASS" update.log || { echo "FAIL update did not start"; exit 1; }
           [ -e "$D/LICENSE.electron.txt" ] || { echo "FAIL app was not reinstalled"; exit 1; }
