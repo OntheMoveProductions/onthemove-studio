@@ -1,0 +1,133 @@
+# Builds "On the Move Studio" for Mac on GitHub's macOS machines.
+# - Push a tag like v1.0.1 to build both versions and attach them to a Release.
+# - Or run it by hand (Actions → Build Mac app → Run workflow) to test a build.
+name: Build Mac app
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Which Mac chip to build for
+        type: choice
+        options: [both, arm64, x64]
+        default: arm64
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - name: Skip this chip
+        id: skip
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.arch }}" != "both" ] && [ "${{ inputs.arch }}" != "${{ matrix.arch }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.skip.outputs.skip != 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.skip.outputs.skip != 'true'
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install build tools
+        if: steps.skip.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Prepare the app folder (${{ matrix.arch }})
+        if: steps.skip.outputs.skip != 'true'
+        run: node scripts/build-app.mjs --arch ${{ matrix.arch }}
+
+      - name: Check the bundled tools are for ${{ matrix.arch }}
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          file build/app/node_modules/ffmpeg-static/ffmpeg
+          file build/app/node_modules/ffmpeg-static/ffmpeg | grep -q "$( [ ${{ matrix.arch }} = arm64 ] && echo arm64 || echo x86_64 )"
+          ls build/app/node_modules/@img/
+
+      - name: Package
+        if: steps.skip.outputs.skip != 'true'
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
+
+      - name: Check the signature
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          APP="$(find release -maxdepth 2 -name 'On the Move Studio.app' | head -1)"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | head -5
+
+      - name: Smoke test (server, dashboard, sharp, ffmpeg inside the app)
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          BIN="$APP/Contents/MacOS/On the Move Studio"
+          if [ "${{ matrix.arch }}" = x64 ]; then
+            softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+            OTM_SMOKE_TEST=1 arch -x86_64 "$BIN"
+          else
+            OTM_SMOKE_TEST=1 "$BIN"
+          fi
+
+      - name: Update test (download, verify, swap in place, reopen)
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          APPS="$RUNNER_TEMP/Apps"; TARGET="$APPS/On the Move Studio.app"
+          mkdir -p "$APPS" feed
+          ditto "$APP" "$TARGET"
+          cp release/*-${{ matrix.arch }}.zip feed/update.zip
+          printf '{"tag_name":"v99.0.0","html_url":"https://example.com","assets":[{"name":"test-%s.zip","browser_download_url":"http://127.0.0.1:8765/update.zip"}]}' "${{ matrix.arch }}" > feed/latest.json
+          (cd feed && python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8765/latest.json >/dev/null 2>&1 && break; sleep 0.5; done
+          curl -fsS http://127.0.0.1:8765/latest.json
+          ls -la feed/
+          BEFORE=$(stat -f %i "$TARGET")
+          RUNAS=""; [ "${{ matrix.arch }}" = x64 ] && RUNAS="arch -x86_64"
+          OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json $RUNAS "$TARGET/Contents/MacOS/On the Move Studio"
+          for i in $(seq 1 90); do
+            NOW=$(stat -f %i "$TARGET" 2>/dev/null || echo none)
+            [ "$NOW" != "$BEFORE" ] && [ "$NOW" != none ] && break
+            sleep 1
+          done
+          [ "$NOW" != "$BEFORE" ] || { echo "FAIL app was not replaced"; exit 1; }
+          [ ! -e "$TARGET.previous" ] || { echo "FAIL backup left behind"; exit 1; }
+          codesign --verify --deep --strict "$TARGET"
+          for i in $(seq 1 30); do pgrep -f "$TARGET/Contents/MacOS/On the Move Studio" >/dev/null && break; sleep 1; done
+          pgrep -f "$TARGET/Contents/MacOS/On the Move Studio" >/dev/null || { echo "FAIL updated app did not reopen"; exit 1; }
+          echo "PASS replaced in place, signature valid, reopened"
+          pkill -f "$TARGET/Contents/MacOS/On the Move Studio" || true
+
+      - uses: actions/upload-artifact@v4
+        if: steps.skip.outputs.skip != 'true'
+        with:
+          name: On-the-Move-Studio-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" files/*.dmg files/*.zip --repo "${{ github.repository }}" --title "On the Move Studio ${{ github.ref_name }}" \
+            --notes "Apple Silicon (M1–M4): the arm64 file. Intel Macs: the x64 file. First install: System Settings → Privacy & Security → Open Anyway. After that the app updates itself (the .zip files are for that)."

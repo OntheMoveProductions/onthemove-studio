@@ -1,0 +1,27 @@
+# Packages build/app (made by scripts/build-app.mjs) into the Mac app.
+appId: cz.onthemove.studio
+productName: On the Move Studio
+copyright: On the Move Productions
+directories:
+  app: build/app
+  output: release
+  buildResources: build-resources
+# Runtime packages are already installed for the target CPU by build-app.mjs.
+npmRebuild: false
+nodeGypRebuild: false
+# Unpacked, so the bundled ffmpeg and sharp binaries can run directly.
+asar: false
+mac:
+  # dmg for first installs, zip for in-app updates (electron/updater.ts).
+  target: [dmg, zip]
+  category: public.app-category.productivity
+  icon: build-resources/icon.png
+  # Ad-hoc signature: required for Apple Silicon to run it at all. Without a
+  # paid Apple Developer ID, macOS asks for "Open Anyway" once.
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  darkModeSupport: true
+dmg:
+  title: On the Move Studio
+artifactName: On-the-Move-Studio-${version}-${arch}.${ext}
