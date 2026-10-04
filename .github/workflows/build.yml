@@ -1,18 +1,18 @@
-# Builds "On the Move Studio" for Mac on GitHub's macOS machines.
-# - Push a tag like v1.0.1 to build both versions and attach them to a Release.
-# - Or run it by hand (Actions → Build Mac app → Run workflow) to test a build.
-name: Build Mac app
+# Builds "On the Move Studio" for Mac (both chips) and Windows on GitHub's machines.
+# - Push a tag like v1.0.1 to build everything and attach it to a Release.
+# - Or run it by hand (Actions → Build app → Run workflow) to test a build.
+name: Build app
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      arch:
-        description: Which Mac chip to build for
+      target:
+        description: What to build
         type: choice
-        options: [both, arm64, x64]
-        default: arm64
+        options: [all, mac-arm64, mac-x64, windows]
+        default: windows
 
 jobs:
   build:
@@ -26,7 +26,7 @@ jobs:
       - name: Skip this chip
         id: skip
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.arch }}" != "both" ] && [ "${{ inputs.arch }}" != "${{ matrix.arch }}" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.target }}" != "all" ] && [ "${{ inputs.target }}" != "mac-${{ matrix.arch }}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -114,9 +114,64 @@ jobs:
             release/*.zip
           if-no-files-found: error
 
+  windows:
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install build tools
+        run: npm ci
+
+      - name: Prepare the app folder
+        run: node scripts/build-app.mjs --platform win32 --arch x64
+
+      - name: Package
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Smoke test (server, dashboard, sharp, ffmpeg inside the app)
+        run: OTM_SMOKE_TEST=1 "release/win-unpacked/On the Move Studio.exe"
+
+      - name: Update test (download, reinstall silently, reopen)
+        run: |
+          SETUP="$(ls release/On-the-Move-Studio-*-x64.exe)"
+          "$SETUP" //S
+          D="$LOCALAPPDATA/Programs/onthemove-studio"; EXE="$D/On the Move Studio.exe"
+          [ -e "$EXE" ] || { echo "FAIL installer did not install the app"; exit 1; }
+          mkdir -p feed && cp "$SETUP" feed/setup.exe
+          printf '{"tag_name":"v99.0.0","html_url":"https://example.com","assets":[{"name":"test-x64.exe","browser_download_url":"http://127.0.0.1:8765/setup.exe"}]}' > feed/latest.json
+          (cd feed && python -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8765/latest.json >/dev/null 2>&1 && break; sleep 0.5; done
+          # The installer must put back a file removed from the installed app.
+          rm "$D/LICENSE.electron.txt"
+          OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json "$EXE" > update.log 2>&1 &
+          for i in $(seq 1 180); do [ -e "$D/LICENSE.electron.txt" ] && break; sleep 1; done
+          cat update.log
+          grep -q "^PASS" update.log || { echo "FAIL update did not start"; exit 1; }
+          [ -e "$D/LICENSE.electron.txt" ] || { echo "FAIL app was not reinstalled"; exit 1; }
+          for i in $(seq 1 60); do tasklist //FI "IMAGENAME eq On the Move Studio.exe" | grep -q "On the Move" && break; sleep 1; done
+          tasklist //FI "IMAGENAME eq On the Move Studio.exe" | grep -q "On the Move" || { echo "FAIL updated app did not reopen"; exit 1; }
+          echo "PASS reinstalled and reopened"
+          taskkill //F //IM "On the Move Studio.exe" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: On-the-Move-Studio-windows
+          path: release/On-the-Move-Studio-*-x64.exe
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -129,5 +184,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" files/*.dmg files/*.zip --repo "${{ github.repository }}" --title "On the Move Studio ${{ github.ref_name }}" \
-            --notes "Apple Silicon (M1–M4): the arm64 file. Intel Macs: the x64 file. First install: System Settings → Privacy & Security → Open Anyway. After that the app updates itself (the .zip files are for that)."
+          gh release create "${{ github.ref_name }}" files/*.dmg files/*.zip files/*.exe --repo "${{ github.repository }}" --title "On the Move Studio ${{ github.ref_name }}" \
+            --notes "Mac with Apple Silicon (M1–M4): the arm64 .dmg. Intel Mac: the x64 .dmg. First install: System Settings → Privacy & Security → Open Anyway. Windows: the .exe (if SmartScreen warns: More info → Run anyway). After that the app updates itself."

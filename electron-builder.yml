@@ -1,4 +1,4 @@
-# Packages build/app (made by scripts/build-app.mjs) into the Mac app.
+# Packages build/app (made by scripts/build-app.mjs) into the Mac and Windows apps.
 appId: cz.onthemove.studio
 productName: On the Move Studio
 copyright: On the Move Productions
@@ -25,3 +25,15 @@ mac:
 dmg:
   title: On the Move Studio
 artifactName: On-the-Move-Studio-${version}-${arch}.${ext}
+win:
+  # One installer; it also serves as the in-app update (run silently).
+  target: [{ target: nsis, arch: [x64] }]
+  icon: build-resources/icon.png
+nsis:
+  # Installs for this Windows user only: no admin prompt, and the app can
+  # update itself without asking.
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  createDesktopShortcut: always
+  shortcutName: On the Move Studio

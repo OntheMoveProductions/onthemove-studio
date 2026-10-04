@@ -6,8 +6,8 @@ website itself stays plain files with no server.
 
 It comes in two forms:
 
-- **The Mac app** (for the studio): a normal app with its own window. Nothing
-  to install besides the app.
+- **The app** (for the studio), for Mac and Windows: a normal app with its
+  own window. Nothing to install besides the app.
 - **The browser editor** (for development): `npm start`, used in a browser tab.
 
 ## The Mac app
@@ -25,21 +25,28 @@ It comes in two forms:
    about On the Move Studio, click **Open Anyway** and confirm. After that it
    opens normally.
 
+### Installing on Windows
+
+From the same Release, download `On-the-Move-Studio-…-x64.exe` and open it.
+It installs for the current Windows user (no administrator needed), adds a
+desktop shortcut and opens the app. The installer isn't signed, so Windows
+SmartScreen may warn the first time: **More info → Run anyway**.
+
 ### Updates
 
 The app checks for a new version when it opens and every few hours. When
 there is one, **Update to …** appears at the bottom of the sidebar: click it,
 and the app downloads the new version, closes and reopens on it (about a
-minute). Because the app downloads it itself, macOS doesn't ask for "Open
-Anyway" again. If the app is somewhere it can't replace itself (for example
+minute or two). Because the app downloads it itself, macOS doesn't ask for
+"Open Anyway" again, and Windows doesn't show SmartScreen. If the app is somewhere it can't replace itself (for example
 a folder the Mac user can't write to), it opens the download page instead.
 
 ### First launch
 
 The app asks for the **GitHub repository** (`OntheMoveProductions/onthemove`)
 and the **GitHub key** (the fine-grained token). The key is checked with
-GitHub, then stored in the app's settings in the Mac user's Library (readable
-only by that Mac user); it never leaves the Mac. The app
+GitHub, then stored in the app's settings for the current computer user
+(on Windows in `%APPDATA%On the Move Studio`); it never leaves the computer. The app
 then downloads the website into `Documents/On the Move Website` (a minute or
 two) and opens the dashboard.
 
@@ -66,26 +73,27 @@ the site without publishing in between, the app stops and says so instead of
 overwriting anything.
 
 Backups of every file the editor overwrites are kept in
-`~/Library/Application Support/On the Move Studio/backups`.
+`~/Library/Application Support/On the Move Studio/backups` (Windows:
+`%APPDATA%On the Move Studioackups`).
 
 ### Making a new version (developers)
 
-The app is built on GitHub's macOS machines (`.github/workflows/build-mac.yml`):
+The app is built on GitHub's machines (`.github/workflows/build.yml`):
 
 ```
 # bump "version" in package.json, commit, then:
 git tag v2.0.1 && git push --tags
 ```
 
-This builds both the Apple Silicon and Intel versions, checks that the app's
-server, image tool and video tool work inside the packaged app, tests the
-whole self-update (download, signature check, swap in place, reopen), and
-attaches the `.dmg` and `.zip` files to a GitHub Release. Installed apps pick
-the release up by themselves. A test build of one chip type can be
-started by hand under **Actions → Build Mac app → Run workflow**.
+This builds the Apple Silicon, Intel and Windows versions, checks that the
+app's server, image tool and video tool work inside each packaged app, tests
+the whole self-update on each (download, install, reopen), and attaches the
+`.dmg`, `.zip` and `.exe` files to a GitHub Release. Installed apps pick the
+release up by themselves. A test build of one version can be started by hand
+under **Actions → Build app → Run workflow**.
 
 Mac build minutes count 10× against the private repository's free 2,000
-minutes a month, so a full build costs roughly 150 of them.
+minutes a month (Windows 2×), so a full build costs roughly 200 of them.
 
 ## The browser editor
 

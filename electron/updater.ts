@@ -1,9 +1,12 @@
-// In-app updates for the Mac app. The app isn't signed by Apple, so the usual
-// Electron updater (which insists on Apple signatures) can't be used. This one:
-// checks the latest GitHub release, downloads the zip for this Mac's chip,
-// unpacks it with ditto, checks its code signature, then quits, swaps the app
-// in place and reopens it. Files the app downloads itself aren't marked as
-// "from the internet", so macOS doesn't ask for "Open Anyway" again.
+// In-app updates. The app isn't signed by Apple, so the usual Electron updater
+// (which insists on Apple signatures) can't be used. This one checks the
+// latest GitHub release, then:
+// - Mac: downloads the zip for this Mac's chip, unpacks it with ditto, checks
+//   its code signature, then quits, swaps the app in place and reopens it.
+//   Files the app downloads itself aren't marked as "from the internet", so
+//   macOS doesn't ask for "Open Anyway" again.
+// - Windows: downloads the installer, runs it silently and quits; the
+//   installer replaces the app and starts it again.
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -12,6 +15,7 @@ import { promisify } from "node:util";
 import { app, shell } from "electron";
 
 const run = promisify(execFile);
+const WINDOWS = process.platform === "win32";
 
 export const RELEASES_REPO = "OntheMoveProductions/onthemove-studio";
 const FEED = process.env.OTM_UPDATE_FEED || `https://api.github.com/repos/${RELEASES_REPO}/releases/latest`;
@@ -52,7 +56,7 @@ open "$TARGET"
 `;
 
 export function createUpdater(isBusy: () => boolean) {
-  const supported = (process.platform === "darwin" && app.isPackaged) || !!process.env.OTM_UPDATE_FEED;
+  const supported = ((process.platform === "darwin" || WINDOWS) && app.isPackaged) || !!process.env.OTM_UPDATE_FEED;
   const state: UpdateState = {
     supported,
     current: app.getVersion(),
@@ -73,7 +77,8 @@ export function createUpdater(isBusy: () => boolean) {
       if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
       const release = await res.json();
       const arch = process.arch === "arm64" ? "arm64" : "x64";
-      const asset = (release.assets ?? []).find((a: any) => a.name.endsWith(`-${arch}.zip`));
+      // Mac: the zip of the app for this chip. Windows: the installer.
+      const asset = (release.assets ?? []).find((a: any) => a.name.endsWith(WINDOWS ? "-x64.exe" : `-${arch}.zip`));
       state.latest = String(release.tag_name ?? "").replace(/^v/, "") || null;
       state.releaseUrl = release.html_url ?? null;
       assetUrl = asset?.browser_download_url ?? null;
@@ -94,12 +99,14 @@ export function createUpdater(isBusy: () => boolean) {
     if (state.phase === "downloading" || state.phase === "installing") return;
     if (isBusy()) throw new Error("Wait until the video conversion or publish has finished, then install the update.");
     const bundle = path.resolve(process.execPath, "..", "..", "..");
-    try {
-      if (!bundle.endsWith(".app")) throw new Error("not running from an app bundle");
-      fs.accessSync(path.dirname(bundle), fs.constants.W_OK);
-    } catch {
-      if (state.releaseUrl) shell.openExternal(state.releaseUrl);
-      throw new Error("This Mac doesn't let the app replace itself where it's installed. The download page has been opened instead.");
+    if (!WINDOWS) {
+      try {
+        if (!bundle.endsWith(".app")) throw new Error("not running from an app bundle");
+        fs.accessSync(path.dirname(bundle), fs.constants.W_OK);
+      } catch {
+        if (state.releaseUrl) shell.openExternal(state.releaseUrl);
+        throw new Error("This Mac doesn't let the app replace itself where it's installed. The download page has been opened instead.");
+      }
     }
 
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "otm-update-"));
@@ -110,7 +117,7 @@ export function createUpdater(isBusy: () => boolean) {
       const res = await fetch(assetUrl, { headers: { "User-Agent": "on-the-move-studio" } });
       if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}).`);
       const total = Number(res.headers.get("content-length")) || 0;
-      const zip = path.join(work, "update.zip");
+      const zip = path.join(work, WINDOWS ? "setup.exe" : "update.zip");
       const out = fs.createWriteStream(zip);
       let received = 0;
       for await (const chunk of res.body as any as AsyncIterable<Uint8Array>) {
@@ -119,8 +126,16 @@ export function createUpdater(isBusy: () => boolean) {
         if (!out.write(chunk)) await new Promise((r) => out.once("drain", r));
       }
       await new Promise<void>((r, j) => out.end((err?: Error | null) => (err ? j(err) : r())));
+      if (total && received !== total) throw new Error("The download was incomplete.");
 
       state.phase = "installing";
+      if (WINDOWS) {
+        // The installer replaces the app quietly (/S) and starts it again
+        // (--force-run) once this copy has quit.
+        spawn(zip, ["/S", "--force-run"], { detached: true, stdio: "ignore" }).unref();
+        setTimeout(() => app.exit(0), 300);
+        return;
+      }
       const unpacked = path.join(work, "unpacked");
       await run("ditto", ["-x", "-k", zip, unpacked]);
       const name = fs.readdirSync(unpacked).find((n) => n.endsWith(".app"));

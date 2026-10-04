@@ -157,7 +157,7 @@ function UpdateBanner() {
   const install = async () => {
     const ok = await confirm({
       title: `Update to version ${u.latest}?`,
-      body: "The app downloads the new version, closes, and opens again in a minute. Unsaved changes on the current screen are lost, so save first.",
+      body: "The app downloads the new version, closes, and opens again in a minute or two. Unsaved changes on the current screen are lost, so save first.",
       confirm: "Update now",
     });
     if (!ok) return;
