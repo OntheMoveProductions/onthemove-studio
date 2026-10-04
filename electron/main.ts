@@ -184,10 +184,17 @@ async function runUpdateSelfTest() {
     console.log("FAIL no update offered");
     return app.exit(1);
   }
+  const t0 = Date.now();
+  const progress = setInterval(() => {
+    const u = updater!.status();
+    console.log(`  ${Math.round((Date.now() - t0) / 1000)}s ${u.phase} ${Math.round(u.progress * 100)}%`);
+  }, 5000);
   try {
     await updater!.install();
+    clearInterval(progress);
     console.log("PASS install started; app will be replaced and reopened");
   } catch (err: any) {
+    clearInterval(progress);
     console.log("FAIL", err?.message ?? err);
     app.exit(1);
   }

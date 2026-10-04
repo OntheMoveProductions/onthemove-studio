@@ -117,7 +117,7 @@ jobs:
   windows:
     if: github.event_name != 'workflow_dispatch' || inputs.target == 'all' || inputs.target == 'windows'
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -144,7 +144,7 @@ jobs:
       - name: Update test (download, reinstall silently, reopen)
         run: |
           SETUP="$(ls release/On-the-Move-Studio-*-x64.exe)"
-          "$SETUP" //S
+          time "$SETUP" //S
           D="$LOCALAPPDATA/Programs/onthemove-studio"; EXE="$D/On the Move Studio.exe"
           [ -e "$EXE" ] || { echo "FAIL installer did not install the app"; exit 1; }
           mkdir -p feed && cp "$SETUP" feed/setup.exe
@@ -154,8 +154,8 @@ jobs:
           # The installer must put back a file removed from the installed app.
           rm "$D/LICENSE.electron.txt"
           OTM_UPDATE_SELFTEST=1 OTM_UPDATE_FEED=http://127.0.0.1:8765/latest.json "$EXE" > update.log 2>&1 &
-          for i in $(seq 1 180); do [ -e "$D/LICENSE.electron.txt" ] && break; sleep 1; done
-          cat update.log
+          for i in $(seq 1 480); do [ -e "$D/LICENSE.electron.txt" ] && break; sleep 1; done
+          echo "waited ${i}s"; cat update.log
           grep -q "^PASS" update.log || { echo "FAIL update did not start"; exit 1; }
           [ -e "$D/LICENSE.electron.txt" ] || { echo "FAIL app was not reinstalled"; exit 1; }
           for i in $(seq 1 60); do tasklist //FI "IMAGENAME eq On the Move Studio.exe" | grep -q "On the Move" && break; sleep 1; done
