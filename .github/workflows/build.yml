@@ -101,6 +101,8 @@ jobs:
           # The old copy is deleted right after the swap; give that a moment.
           for i in $(seq 1 30); do [ -e "$TARGET.previous" ] || break; sleep 1; done
           [ ! -e "$TARGET.previous" ] || { echo "FAIL backup left behind"; exit 1; }
+          # Right after the swap macOS may still be scanning the new app; retry briefly.
+          for i in $(seq 1 10); do codesign --verify --deep --strict "$TARGET" && break; sleep 2; done
           codesign --verify --deep --strict "$TARGET"
           for i in $(seq 1 30); do pgrep -f "$TARGET/Contents/MacOS/On the Move Studio" >/dev/null && break; sleep 1; done
           pgrep -f "$TARGET/Contents/MacOS/On the Move Studio" >/dev/null || { echo "FAIL updated app did not reopen"; exit 1; }
