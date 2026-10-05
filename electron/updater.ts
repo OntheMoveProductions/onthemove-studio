@@ -114,17 +114,24 @@ export function createUpdater(isBusy: () => boolean) {
       state.phase = "downloading";
       state.progress = 0;
       state.error = null;
-      const res = await fetch(assetUrl, { headers: { "User-Agent": "on-the-move-studio" } });
+      // A download that stops receiving data (dropped Wi-Fi) fails after a
+      // minute instead of hanging forever.
+      const idle = new AbortController();
+      let idleTimer = setTimeout(() => idle.abort(), 60_000);
+      const res = await fetch(assetUrl, { headers: { "User-Agent": "on-the-move-studio" }, signal: idle.signal });
       if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}).`);
       const total = Number(res.headers.get("content-length")) || 0;
       const zip = path.join(work, WINDOWS ? "setup.exe" : "update.zip");
       const out = fs.createWriteStream(zip);
       let received = 0;
       for await (const chunk of res.body as any as AsyncIterable<Uint8Array>) {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => idle.abort(), 60_000);
         received += chunk.length;
         if (total) state.progress = received / total;
         if (!out.write(chunk)) await new Promise((r) => out.once("drain", r));
       }
+      clearTimeout(idleTimer);
       await new Promise<void>((r, j) => out.end((err?: Error | null) => (err ? j(err) : r())));
       if (total && received !== total) throw new Error("The download was incomplete.");
 
@@ -151,7 +158,8 @@ export function createUpdater(isBusy: () => boolean) {
       setTimeout(() => app.exit(0), 300);
     } catch (err: any) {
       state.phase = "error";
-      state.error = `The update couldn't be installed: ${err?.message ?? err}`;
+      const reason = err?.name === "AbortError" ? "the download stopped. Check the internet connection and try again." : (err?.message ?? err);
+      state.error = `The update couldn't be installed: ${reason}`;
       fs.rmSync(work, { recursive: true, force: true });
       throw new Error(state.error);
     }

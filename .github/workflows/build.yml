@@ -85,7 +85,7 @@ jobs:
           ditto "$APP" "$TARGET"
           cp release/*-${{ matrix.arch }}.zip feed/update.zip
           printf '{"tag_name":"v99.0.0","html_url":"https://example.com","assets":[{"name":"test-%s.zip","browser_download_url":"http://127.0.0.1:8765/update.zip"}]}' "${{ matrix.arch }}" > feed/latest.json
-          (cd feed && python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          node -e "const fs=require('fs'),p=require('path');require('http').createServer((q,r)=>{const f=p.join('feed',p.basename(q.url));if(!fs.existsSync(f)){r.writeHead(404);return r.end()}r.writeHead(200,{'content-length':fs.statSync(f).size});fs.createReadStream(f).pipe(r)}).listen(8765,'127.0.0.1')" &
           for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8765/latest.json >/dev/null 2>&1 && break; sleep 0.5; done
           curl -fsS http://127.0.0.1:8765/latest.json
           ls -la feed/
