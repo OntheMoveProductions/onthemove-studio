@@ -157,7 +157,7 @@ jobs:
           for i in $(seq 1 480); do
             [ -e "$D/LICENSE.electron.txt" ] && break
             if [ $((i % 15)) = 0 ]; then
-              echo "--- ${i}s"; tail -2 update.log; tail -1 progress.log 2>/dev/null; tasklist | grep -iE "move|setup|ins" || true
+              echo "--- ${i}s"; tail -2 update.log || true; tail -1 progress.log 2>/dev/null || true; tasklist | grep -iE "move|setup|ins" || true
               ls -la "$TEMP"/otm-update-* 2>/dev/null | head -5 || true
             fi
             sleep 1
